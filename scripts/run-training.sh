@@ -12,14 +12,14 @@ seed=42
 if [ ! -d $env_name ]
 then
   echo "Have not found existing $env_name, creating a new one"
-  pip install virtualenv
+  pip3 install virtualenv
   virtualenv --python=python3.6 $env_name
   . ./$env_name/bin/activate && echo "successfully activated $env_name python is $(which python)"
   cd $pyrep_src
-  pip install -r requirements.txt
-  python setup.py install
+  pip3 install -r requirements.txt
+  python3 setup.py install
   cd -
-  pip install -r requirements.txt
+  pip3 install -r requirements.txt
 fi
 EXP_CONFIG=$config LOGDIR=$logs_folder/$series_name DBPORT=$useDBPORT . ./scripts/prepare_configs.sh
 if [[ -z "$series_name" ]]; then
