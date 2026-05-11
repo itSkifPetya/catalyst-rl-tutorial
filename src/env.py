@@ -3,9 +3,9 @@ import cv2
 import logging
 import numpy as np
 
-from gymnasium import Space
-from gymnasium.spaces.box import Box
-from gymnasium.spaces.dict import Dict
+from gym import Space
+from gym.spaces.box import Box
+from gym.spaces.dict import Dict
 from pyrep import PyRep, objects
 
 from catalyst_rl.rl.core import EnvironmentSpec
