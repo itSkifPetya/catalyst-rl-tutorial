@@ -1,3 +1,103 @@
+# Отчёт по первой части квалификацонной работы к практике в лаборатории DRL ИТМО.
+
+### Постановка задачи:
+
+- Ознакомиться с репозиторием [catalyst-rl-tutorial](https://github.com/arrival-ltd/catalyst-rl-tutorial).
+- Подготовить окружение в соответствии с требованиями репозитория.
+- Запустить обучение в подготовленном окружении.
+- Продемонстрировать результаты обучения.
+
+### Выполнение:
+К сожалению в репозитории указаны неполные требования к окружению, из-за чего возникли некоторые сложности, которые к счастью были успешно преодолены. Проблем было слишком много, поэтому в ходе их решения я параллельно готовил Dockerfile, в котором постарался учесть все нюансы, с которыми столкнулся. Некоторые из них:
+- Устаревшие ссылки на библиотеки torch и torchvision
+- Отсутствие явного указания версии catalyst-rl (актуальная версия, которую устанавливал pip не подошла для проекта)
+- В файле src/network.py закомментирована строка, использующая библиотеку catalyst так как она вызывала ошибку при запуске обучения, пытаясь вызвать отсутствующий в этой версии модуль (`catalyst.utils.initialization.get_optimal_inner_init(activation_fn)`). Вызов данной функции немного изменяет начальную иницилизацию весов нейросети, что в свою очередь влияет на скорость обучения, но не является критичным для его успешного завершения, так как в PyTorch 1.7.1 уже реализована половина того, для чего предназначена эта строка. Поэтому я решил закомментировать её, чтобы обучение могло запуститься и успешно завершиться, а уже после этого заняться её восстановлением и оптимизацией.
+
+Я сделал [форк](https://github.com/itSkifPetya/catalyst-rl-tutorial) проекта и внёс изменения, которые решают эти проблемы и в докерфайле уже использовал свой репозиторий.
+
+`Dockerfile:`
+```Dockerfile
+FROM ubuntu:18.04 
+
+ENV QT_X11_NO_MITSHM=1 
+
+RUN apt update && apt upgrade -y
+
+RUN apt install python3 python3-pip python3-dev git curl wget nano zip unzip xz-utils tar tmux libopenmpi-dev build-essential libffi-dev libssl-dev libxml2-dev libxslt1-dev -y
+
+RUN pip3 install --upgrade "pip<21.3.1"
+RUN pip3 install tensorboard "wandb<0.15.0"
+
+# Обеспечение работоспособности визуализации
+RUN apt install -y \
+    libgl1-mesa-glx \
+    libglfw3 \
+    libglew-dev \
+    libosmesa6-dev \
+    xpra \
+    x11-apps
+
+RUN apt install -y \
+    libx11-xcb1 \
+    libxcb-xinerama0 \
+    libxcb-util1 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-render-util0 \
+    libxkbcommon-x11-0 \
+    libsm6 \
+    libice6 \
+    libfontconfig1 \
+    libdbus-1-3
+
+RUN apt-get install -y libgl1-mesa-glx libglib2.0-0 libxcb-keysyms1 libxcb-image0 \
+                    libxcb-icccm4 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
+                    libxkbcommon-x11-0 wget tar xz-utils libavcodec57 libavformat57 \
+                    libavutil55 libswscale4 mongodb
+
+RUN wget https://downloads.coppeliarobotics.com/V4_1_0/CoppeliaSim_Pro_V4_1_0_Ubuntu18_04.tar.xz
+
+RUN tar -xf CoppeliaSim_Pro_V4_1_0_Ubuntu18_04.tar.xz
+
+ENV COPPELIASIM_ROOT=/CoppeliaSim_Pro_V4_1_0_Ubuntu18_04
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$COPPELIASIM_ROOT
+ENV QT_QPA_PLATFORM_PLUGIN_PATH=$COPPELIASIM_ROOT
+
+RUN git clone https://github.com/itSkifPetya/catalyst-rl-tutorial \
+    cd catalyst-rl-tutorial \
+    pip3 install -r requirements.txt \
+    # удаление той самой строки, из-за которой не запускается обучение
+    sed -i 's/net.apply(utils.initialization.get_optimal_inner_init(activation_fn))/# net.apply(utils.initialization.get_optimal_inner_init(activation_fn))/g' src/network.py
+
+RUN git clone https://github.com/stepjam/PyRep \
+    cd PyRep \
+    pip3 install -r requirements.txt \
+    pip3 install . \
+    cd ..
+
+RUN pip3 install tensorboard
+
+RUN scripts/run-training.sh
+```
+
+Для запуска выполнить в директории с `Dockerfile`::
+```bash
+xhost +local:root # разрешаем контейнеру использовать X-сервер для отображения графики (для CoppeliaSim)
+docker build -t {image_name} .
+docker run -dit \ 
+--gpus all \ # передаём все доступные GPU в контейнер
+--shm-size=8g \ # увеличиваем размер разделяемой памяти для более эффективного использования видеопамяти
+-p 6380:6380 \ # пробрасываем порт для мониторинга обучения через TensorBoard
+--env="DISPLAY=$DISPLAY" \ # передаём переменную окружения DISPLAY для обеспечения работы графической оболочки
+--volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \ # монтируем сокет X11 для отображения графики контейнера на хосте
+{image_name}
+```
+
+После успешного запуска обучения, цикл в 400 эпох показал, что исходные параметры обучения были не оптимальными. Поэтому для начальных стадий обучения я решил увеличить интенсивность "шумов" алгоритма, чтобы на ранних стадиях агент более "смело" и активно исследовал пространство. После того, как агент научился со 100% успехом достигать уровня наград $0.8\pm0.05$, я перешёл к файн-тюнингу и уменьшил интенсивность "шумов", чтобы агенту было легче стабилизироваться над отверстием и туда попасть, ибо по моим наблюдениям, именно сильные шумы мешали ему стабильно это делать.
+
+Скринкаст c демонстрацией результатов обучения доступен по [ссылке](https://youtu.be/axDWAdyfTvc).
+
 # Robotic Assembly using Deep Reinforcement Learning
 
 ![](./images/tutorial_gif.gif)
